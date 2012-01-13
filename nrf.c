@@ -1,0 +1,410 @@
+#include <stdint.h>
+#include <avr/io.h>
+#include <avr/interrupt.h>
+#include <util/delay.h>
+
+#include "nrf.h"
+#include "nrf24l01.h"
+
+#ifdef NRF_CFG_IRQ_MODE
+volatile uint8_t nrf_status;
+#endif /* NRF_CFG_IRQ_MODE */
+
+uint8_t spi_rwb(uint8_t in)
+{
+	USIDR = in;
+	USISR = (1 << USIOIF);
+	do {
+		USICR |= (1 << USITC);
+	} while(!(USISR & (1 << USIOIF)));
+	return USIDR;
+}
+
+void spi_rw(uint8_t cmd, uint8_t *in, uint8_t *out, uint8_t len)
+{
+	uint8_t wp = 0;
+
+	SPI_CS_LOW();
+	spi_rwb(cmd);
+	while(wp < len) {
+		cmd = spi_rwb((in)?(in[wp]):(0x0));
+		if(out) out[wp] = cmd;
+		wp++;
+	}
+	SPI_CS_HIGH();
+}
+
+void nrf_cmd(uint8_t cmd)
+{
+	SPI_CS_LOW();
+	spi_rwb(cmd);
+	SPI_CS_HIGH();
+}
+
+/* This is not a typo!
+ *
+ * Most evil trick ever... (not giving argument types)
+ */
+uint8_t nrf_rwcmd(cmd, val)
+{
+	SPI_CS_LOW();
+	spi_rwb(cmd);
+	val = spi_rwb(val);
+	SPI_CS_HIGH();
+	return val;
+}
+
+#ifdef NRF_CFG_IRQ_MODE
+ISR(NRF_CFG_INT_VEC)
+{
+	uint8_t fifo, irq;
+
+	SPI_CS_LOW();
+	irq = spi_rwb(NRF_C_R_REGISTER | NRF_R_FIFO_STATUS);
+	fifo = spi_rwb(0);
+	SPI_CS_HIGH();
+	
+	if(irq & NRF_R_STATUS_MAX_RT) {
+		SPI_CE_LOW();
+#ifdef NRF_CFG_IRQ_TX_PWR_DOWN
+		nrf_power(0);
+#endif
+	} else if(irq & NRF_R_STATUS_TX_DS) {
+		if(fifo & NRF_R_FIFO_STATUS_TX_EMPTY) {
+			SPI_CE_LOW();
+#ifdef NRF_CFG_IRQ_TX_PWR_DOWN
+			nrf_power(0);
+#endif
+		}
+	}
+
+#ifdef NRF_CFG_IRQ_RX_PWR_DOWN
+	if(irq & NRF_R_STATUS_RX_DR) {
+		SPI_CE_LOW();
+		nrf_power(0);
+	}
+#endif
+	uint8_t mask = irq & (NRF_R_STATUS_MAX_RT
+			| NRF_R_STATUS_TX_DS
+			| NRF_R_STATUS_RX_DR);
+
+	nrf_status |= mask;
+	nrf_rwcmd(NRF_C_W_REGISTER | NRF_R_STATUS, mask);
+}
+#endif /* NRF_CFG_IRQ_MODE */
+
+void nrf_send_start()
+{
+	uint8_t reg;
+
+	/* configure nrf_device for tx mode */
+	reg = nrf_rwcmd(NRF_C_R_REGISTER | NRF_R_CONFIG);
+	reg &= ~NRF_R_CONFIG_PRIM_RX;
+	nrf_rwcmd(NRF_C_W_REGISTER | NRF_R_CONFIG, reg);
+	
+	nrf_rwcmd(NRF_C_W_REGISTER | NRF_R_STATUS,
+		  NRF_R_STATUS_MAX_RT
+		| NRF_R_STATUS_TX_DS
+		| NRF_R_STATUS_RX_DR);
+}
+
+#ifndef NRF_CFG_IRQ_MODE
+void nrf_send_stop()
+{
+	uint8_t irq, fifo;
+	
+	SPI_CE_HIGH();
+
+	SPI_CS_LOW();
+	irq = spi_rwb(NRF_C_R_REGISTER | NRF_R_FIFO_STATUS);
+	fifo = spi_rwb(0);
+	SPI_CS_HIGH();
+
+	while(!(fifo & NRF_R_FIFO_STATUS_TX_EMPTY)) {
+		if(irq & NRF_R_STATUS_MAX_RT) {
+			nrf_rwcmd(NRF_C_W_REGISTER | NRF_R_STATUS,
+				  NRF_R_STATUS_MAX_RT);
+			
+			nrf_cmd(NRF_C_FLUSH_TX);
+			
+			NRF_CFG_ERROR_IND();
+		}
+		
+		SPI_CS_LOW();
+		irq = spi_rwb(NRF_C_R_REGISTER | NRF_R_FIFO_STATUS);
+		fifo = spi_rwb(0);
+		SPI_CS_HIGH();
+	}
+	
+	SPI_CE_LOW();
+}
+#endif /* NRF_CFG_IRQ_MODE */
+
+void nrf_recv_start()
+{
+	uint8_t reg;
+
+	/* configure for rx mode */
+	reg = nrf_rwcmd(NRF_C_R_REGISTER | NRF_R_CONFIG);
+	reg |= NRF_R_CONFIG_PRIM_RX;
+	nrf_rwcmd(NRF_C_W_REGISTER | NRF_R_CONFIG, reg);
+
+	/* standby II? */
+	SPI_CE_HIGH();
+}
+
+#ifndef NRF_CFG_IRQ_MODE
+
+void nrf_write(uint8_t *data, int8_t len)
+{
+	uint8_t fifo, irq;
+
+	/* standby II */
+	SPI_CE_HIGH();
+	
+	SPI_CS_LOW();
+	irq = spi_rwb(NRF_C_R_REGISTER | NRF_R_FIFO_STATUS);
+	fifo = spi_rwb(0);
+	SPI_CS_HIGH();
+	
+	/* MAX_RT must be reset to enable further
+	 * communication in case of an error */
+	if(irq & NRF_R_STATUS_MAX_RT) {
+		nrf_rwcmd(NRF_C_W_REGISTER | NRF_R_STATUS,
+			  NRF_R_STATUS_MAX_RT);
+		
+		NRF_CFG_ERROR_IND();
+	}
+
+	/* write new data if there's some space in the FIFOs */
+	if(!(fifo & NRF_R_FIFO_STATUS_TX_FULL)) {
+#ifdef NRF_CFG_DYN_ACK
+		if(len > 0)
+			spi_rw(NRF_C_W_TX_PAYLOAD, data, NULL, len);
+		else
+			spi_rw(NRF_C_W_TX_PAYLOAD_NOACK, data, NULL, -len);
+#else
+		spi_rw(NRF_C_W_TX_PAYLOAD, data, NULL, len);
+#endif /* NRF_CFG_DYN_ACK */
+	}
+
+	/* -> standby I */
+	SPI_CE_LOW();
+}
+
+#else /* NRF_CFG_IRQ_MODE */
+
+uint8_t nrf_write(uint8_t *data, int8_t len)
+{
+	uint8_t fifo;
+
+	fifo = nrf_rwcmd(NRF_C_R_REGISTER | NRF_R_FIFO_STATUS);
+
+	/* write new data if there's some space in the FIFOs */
+	if(!(fifo & NRF_R_FIFO_STATUS_TX_FULL)) {
+#ifdef NRF_CFG_DYN_ACK
+		if(len > 0)
+			spi_rw(NRF_C_W_TX_PAYLOAD, data, NULL, len);
+		else
+			spi_rw(NRF_C_W_TX_PAYLOAD_NOACK, data, NULL, -len);
+#else
+		spi_rw(NRF_C_W_TX_PAYLOAD, data, NULL, len);
+#endif /* NRF_CFG_DYN_ACK */
+		
+		/* standby II */
+		SPI_CE_HIGH();
+	
+		return 1;
+	}
+
+	return 0;
+}
+#endif /* NRF_CFG_IRQ_MODE */
+
+uint8_t nrf_read(uint8_t *data)
+{
+	uint8_t fifo, len = 0;
+
+	fifo = nrf_rwcmd(NRF_C_R_REGISTER | NRF_R_FIFO_STATUS);
+
+	/* if there's data in the fifos... */
+	if(!(fifo & NRF_R_FIFO_STATUS_RX_EMPTY)) {
+		/* get length of the top fifo element */
+		len = nrf_rwcmd(NRF_C_R_RX_PL_WID);
+		
+		/* if len > 32 something odd happened */
+		if(len > 32) {
+			nrf_cmd(NRF_C_FLUSH_RX);
+			len = 0;
+		} else
+			spi_rw(NRF_C_R_RX_PAYLOAD, NULL, data, len);
+	}
+
+	return len;
+}
+
+void nrf_power(uint8_t flag)
+{
+	uint8_t reg;
+
+	/* power down <-> standby I */
+	reg = nrf_rwcmd(NRF_C_R_REGISTER | NRF_R_CONFIG);
+	if(flag)
+		reg |= NRF_R_CONFIG_PWR_UP;
+	else
+		reg &= ~NRF_R_CONFIG_PWR_UP;
+	nrf_rwcmd(NRF_C_W_REGISTER | NRF_R_CONFIG, reg);
+}
+
+#ifdef NRF_CFG_ADDR_FAST
+void nrf_tx_addr(uint8_t *mac, uint8_t len)
+{
+	spi_rw(NRF_C_W_REGISTER | NRF_R_TX_ADDR, mac, NULL,
+		len);
+	
+	nrf_rwcmd(NRF_C_W_REGISTER | NRF_R_SETUP_AW,
+		NRF_R_SETUP_AW_AW(len));
+}
+
+void nrf_rx_addr(uint8_t *mac, uint8_t len, uint8_t pipe)
+{
+	spi_rw(NRF_C_W_REGISTER | NRF_R_RX_ADDR_P(pipe), mac, NULL,
+		NRF_R_RX_ADDR_P_LEN(pipe, len));
+}
+#endif /* NRF_CFG_ADDR_FAST */
+
+#ifdef NRF_CFG_EEPROM_INIT
+void nrf_init(uint8_t *data)
+{
+	uint8_t reg, val, off = 0;
+
+	while((reg = eeprom_read_byte(&data[off++])) != 0xff)
+	{
+		val = eeprom_read_byte(&data[off++]);
+		nrf_rwcmd(NRF_C_W_REGISTER | reg, val);
+	}
+
+	nrf_cmd(NRF_C_FLUSH_TX);
+	nrf_cmd(NRF_C_FLUSH_RX);
+}
+
+#ifndef NRF_CFG_ADDR_FAST
+void nrf_tx_addr(uint8_t *buf)
+{
+	uint8_t addr[NRF_CFG_ADDR_WIDTH];
+
+	/* read and set tx-addr */
+	eeprom_read_block(addr, buf,
+		NRF_CFG_ADDR_WIDTH);
+	
+	spi_rw(NRF_C_W_REGISTER | NRF_R_TX_ADDR, addr, NULL,
+		NRF_CFG_ADDR_WIDTH);
+}
+
+void nrf_rx_addr(uint8_t *buf, uint8_t pipe)
+{
+	uint8_t addr[NRF_CFG_ADDR_WIDTH];
+
+	eeprom_read_block(addr, buf,
+		NRF_R_RX_ADDR_P_LEN(pipe, NRF_CFG_ADDR_WIDTH));
+
+	spi_rw(NRF_C_W_REGISTER | NRF_R_RX_ADDR_P(pipe), addr, NULL,
+		NRF_R_RX_ADDR_P_LEN(pipe, NRF_CFG_ADDR_WIDTH));
+}
+#endif /* NRF_CFG_ADDR_FAST */
+
+#else /* NRF_CFG_EEPROM_INIT */
+
+void nrf_init_pipe(uint8_t num)
+{
+	uint8_t reg;
+
+	/* set max packet size for pipe */
+	nrf_rwcmd(NRF_C_W_REGISTER | NRF_R_RX_PW_P(num),
+		nrf_pipe.rxlen);
+
+	/* set receive address */
+	spi_rw(NRF_C_W_REGISTER | NRF_R_RX_ADDR_P(num),
+		nrf_pipe.rxmac, NULL,
+		nrf_pipe.maclen);
+	
+	/* enable/disable pipe */
+	reg = nrf_rwcmd(NRF_C_R_REGISTER | NRF_R_EN_RXADDR);
+	if(nrf_pipe.flags & NRF_PIPE_EN)
+		reg |= NRF_R_EN_RXADDR_ERX_P(num);
+	else
+		reg &= ~NRF_R_EN_RXADDR_ERX_P(num);
+	nrf_rwcmd(NRF_C_W_REGISTER | NRF_R_EN_RXADDR, reg);
+	
+	/* enable/disable auto-ack */
+	reg = nrf_rwcmd(NRF_C_R_REGISTER | NRF_R_EN_AA);
+	if(nrf_pipe.flags & NRF_PIPE_AA)
+		reg |= NRF_R_EN_AA_ENAA_P(num);
+	else
+		reg &= ~NRF_R_EN_AA_ENAA_P(num);
+	nrf_rwcmd(NRF_C_W_REGISTER | NRF_R_EN_AA, reg);
+	
+	/* enable/disable dynamic packet lengths */
+	reg = nrf_rwcmd(NRF_C_R_REGISTER | NRF_R_DYNPD);
+	if(nrf_pipe.flags & NRF_PIPE_DPL) {
+		reg |= NRF_R_DYNPD_DPL_P(num);
+	} else
+		reg &= ~NRF_R_DYNPD_DPL_P(num);
+	nrf_rwcmd(NRF_C_W_REGISTER | NRF_R_DYNPD, reg);
+}
+
+void nrf_init()
+{
+	/* set global address width */
+	nrf_rwcmd(NRF_C_W_REGISTER | NRF_R_SETUP_AW,
+		NRF_R_SETUP_AW_AW(nrf_dev.maclen));
+	
+	/* set tx address */
+	spi_rw(NRF_C_W_REGISTER | NRF_R_TX_ADDR,
+		nrf_dev.txmac, NULL,
+		nrf_dev.maclen);	
+
+	/* set channel */
+	nrf_rwcmd(NRF_C_W_REGISTER | NRF_R_RF_CH,
+		nrf_dev.channel);
+	
+	/* set auto ack timeout and maximum retries */
+	nrf_rwcmd(NRF_C_W_REGISTER | NRF_R_SETUP_RETR,
+		  NRF_R_SETUP_RETR_ARD(nrf_dev.ard)
+		| NRF_R_SETUP_RETR_ARC(nrf_dev.arc));
+	
+	/* set data rate and tx power */
+	nrf_rwcmd(NRF_C_W_REGISTER | NRF_R_RF_SETUP,
+		nrf_dev.rate
+		| NRF_R_RF_SETUP_RF_PWR(nrf_dev.txpwr));
+	
+	/* set crc mode */
+	nrf_rwcmd(NRF_C_W_REGISTER | NRF_R_CONFIG,
+		((nrf_dev.crc > 0)?(NRF_R_CONFIG_EN_CRC):0)
+		| ((nrf_dev.crc > 1)?(NRF_R_CONFIG_CRCO):0));
+
+	/* disable all data pipes */
+	nrf_rwcmd(NRF_C_W_REGISTER | NRF_R_EN_RXADDR,
+		NRF_R_EN_RXADDR_ERX_NONE);
+	
+	/* disable auto ack */
+	nrf_rwcmd(NRF_C_W_REGISTER | NRF_R_EN_AA,
+		NRF_R_EN_AA_ENAA_NONE);
+	
+	/* disable dynamic payload length */
+	nrf_rwcmd(NRF_C_W_REGISTER | NRF_R_DYNPD,
+		NRF_R_DYNPD_DPL_NONE);
+	
+	/* just in case: clear max_rt... */
+	nrf_rwcmd(NRF_C_W_REGISTER | NRF_R_STATUS,
+		NRF_R_STATUS_MAX_RT);
+
+	/* also needs to be enabled in FEATURE register */
+	nrf_rwcmd(NRF_C_W_REGISTER | NRF_R_FEATURE,
+		NRF_R_FEATURE_EN_DPL | NRF_R_FEATURE_EN_DYN_ACK);
+
+	/* ...and flush the buffers */
+	nrf_cmd(NRF_C_FLUSH_TX);
+	nrf_cmd(NRF_C_FLUSH_RX);
+}
+#endif /* NRF_CFG_EEPROM_INIT */
