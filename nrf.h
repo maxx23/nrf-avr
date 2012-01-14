@@ -60,7 +60,7 @@ extern struct nrf_pipe_s    nrf_pipe;
 /* EEPROM configuration mode is unstructured ;) */
 
 #ifdef NRF_CFG_IRQ_MODE
-extern volatile uint8_t nrf_status;
+extern volatile uint8_t nrf_int_flag;
 #endif /* NRF_IRQ_MODE */
 
 /* public exports */
@@ -68,6 +68,7 @@ void nrf_send_start();
 
 #ifdef NRF_CFG_IRQ_MODE
 uint8_t nrf_write(uint8_t *data, int8_t len);
+uint8_t nrf_int();
 #else
 void nrf_write(uint8_t *data, int8_t len);
 void nrf_send_stop();

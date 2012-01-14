@@ -7,7 +7,60 @@
 #include "nrf24l01.h"
 
 #ifdef NRF_CFG_IRQ_MODE
-volatile uint8_t nrf_status;
+volatile uint8_t nrf_int_flag;
+#endif /* NRF_CFG_IRQ_MODE */
+
+#ifdef NRF_CFG_IRQ_MODE
+ISR(NRF_CFG_INT_VEC)
+{
+	nrf_int_flag = 1;
+}
+
+uint8_t nrf_int()
+{
+	uint8_t fifo, irq;
+
+	if(nrf_int_flag) {
+		nrf_int_flag = 0;
+
+		SPI_CS_LOW();
+		irq = spi_rwb(NRF_C_R_REGISTER | NRF_R_FIFO_STATUS);
+		fifo = spi_rwb(0);
+		SPI_CS_HIGH();
+		
+		if(irq & NRF_R_STATUS_MAX_RT) {
+			SPI_CE_LOW();
+#ifdef NRF_CFG_IRQ_TE_FLUSH
+			nrf_cmd(NRF_C_FLUSH_TX);
+#endif
+#ifdef NRF_CFG_IRQ_TE_PWR_DOWN
+			nrf_power(0);
+#endif
+		} else if(irq & NRF_R_STATUS_TX_DS) {
+			if(fifo & NRF_R_FIFO_STATUS_TX_EMPTY) {
+				SPI_CE_LOW();
+#ifdef NRF_CFG_IRQ_TX_PWR_DOWN
+				nrf_power(0);
+#endif
+			}
+		}
+
+#ifdef NRF_CFG_IRQ_RX_PWR_DOWN
+		if(irq & NRF_R_STATUS_RX_DR) {
+			SPI_CE_LOW();
+			nrf_power(0);
+		}
+#endif
+		nrf_rwcmd(NRF_C_W_REGISTER | NRF_R_STATUS,
+				irq & (NRF_R_STATUS_MAX_RT
+				| NRF_R_STATUS_TX_DS
+				| NRF_R_STATUS_RX_DR));
+
+		return irq;
+	}
+
+	return 0;
+}
 #endif /* NRF_CFG_IRQ_MODE */
 
 uint8_t spi_rwb(uint8_t in)
@@ -34,71 +87,47 @@ void spi_rw(uint8_t cmd, uint8_t *in, uint8_t *out, uint8_t len)
 	SPI_CS_HIGH();
 }
 
-void nrf_cmd(uint8_t cmd)
+uint8_t nrf_cmd(uint8_t cmd)
 {
+	uint8_t reg;
+
 	SPI_CS_LOW();
-	spi_rwb(cmd);
+	reg = spi_rwb(cmd);
 	SPI_CS_HIGH();
+
+	return reg;
 }
 
-/* This is not a typo!
- *
- * Most evil trick ever... (not giving argument types)
- */
-uint8_t nrf_rwcmd(cmd, val)
+uint8_t nrf_rwcmd(uint8_t cmd, uint8_t val)
 {
 	SPI_CS_LOW();
 	spi_rwb(cmd);
 	val = spi_rwb(val);
 	SPI_CS_HIGH();
+
 	return val;
 }
 
-#ifdef NRF_CFG_IRQ_MODE
-ISR(NRF_CFG_INT_VEC)
+void nrf_power(uint8_t flag)
 {
-	uint8_t fifo, irq;
+	uint8_t reg;
 
-	SPI_CS_LOW();
-	irq = spi_rwb(NRF_C_R_REGISTER | NRF_R_FIFO_STATUS);
-	fifo = spi_rwb(0);
-	SPI_CS_HIGH();
-	
-	if(irq & NRF_R_STATUS_MAX_RT) {
-		SPI_CE_LOW();
-#ifdef NRF_CFG_IRQ_TX_PWR_DOWN
-		nrf_power(0);
-#endif
-	} else if(irq & NRF_R_STATUS_TX_DS) {
-		if(fifo & NRF_R_FIFO_STATUS_TX_EMPTY) {
-			SPI_CE_LOW();
-#ifdef NRF_CFG_IRQ_TX_PWR_DOWN
-			nrf_power(0);
-#endif
-		}
-	}
-
-#ifdef NRF_CFG_IRQ_RX_PWR_DOWN
-	if(irq & NRF_R_STATUS_RX_DR) {
-		SPI_CE_LOW();
-		nrf_power(0);
-	}
-#endif
-	uint8_t mask = irq & (NRF_R_STATUS_MAX_RT
-			| NRF_R_STATUS_TX_DS
-			| NRF_R_STATUS_RX_DR);
-
-	nrf_status |= mask;
-	nrf_rwcmd(NRF_C_W_REGISTER | NRF_R_STATUS, mask);
+	/* power down <-> standby I */
+	reg = nrf_rwcmd(NRF_C_R_REGISTER | NRF_R_CONFIG, 0);
+	if(flag)
+		reg |= NRF_R_CONFIG_PWR_UP;
+	else
+		reg &= ~NRF_R_CONFIG_PWR_UP;
+	nrf_rwcmd(NRF_C_W_REGISTER | NRF_R_CONFIG, reg);
 }
-#endif /* NRF_CFG_IRQ_MODE */
+
 
 void nrf_send_start()
 {
 	uint8_t reg;
 
 	/* configure nrf_device for tx mode */
-	reg = nrf_rwcmd(NRF_C_R_REGISTER | NRF_R_CONFIG);
+	reg = nrf_rwcmd(NRF_C_R_REGISTER | NRF_R_CONFIG, 0);
 	reg &= ~NRF_R_CONFIG_PRIM_RX;
 	nrf_rwcmd(NRF_C_W_REGISTER | NRF_R_CONFIG, reg);
 	
@@ -145,7 +174,7 @@ void nrf_recv_start()
 	uint8_t reg;
 
 	/* configure for rx mode */
-	reg = nrf_rwcmd(NRF_C_R_REGISTER | NRF_R_CONFIG);
+	reg = nrf_rwcmd(NRF_C_R_REGISTER | NRF_R_CONFIG, 0);
 	reg |= NRF_R_CONFIG_PRIM_RX;
 	nrf_rwcmd(NRF_C_W_REGISTER | NRF_R_CONFIG, reg);
 
@@ -157,16 +186,13 @@ void nrf_recv_start()
 
 void nrf_write(uint8_t *data, int8_t len)
 {
-	uint8_t fifo, irq;
+	uint8_t irq;
 
 	/* standby II */
 	SPI_CE_HIGH();
 	
-	SPI_CS_LOW();
-	irq = spi_rwb(NRF_C_R_REGISTER | NRF_R_FIFO_STATUS);
-	fifo = spi_rwb(0);
-	SPI_CS_HIGH();
-	
+	irq = nrf_cmd(NRF_C_NOP);
+
 	/* MAX_RT must be reset to enable further
 	 * communication in case of an error */
 	if(irq & NRF_R_STATUS_MAX_RT) {
@@ -177,7 +203,7 @@ void nrf_write(uint8_t *data, int8_t len)
 	}
 
 	/* write new data if there's some space in the FIFOs */
-	if(!(fifo & NRF_R_FIFO_STATUS_TX_FULL)) {
+	if(!(irq & NRF_R_STATUS_TX_FULL)) {
 #ifdef NRF_CFG_DYN_ACK
 		if(len > 0)
 			spi_rw(NRF_C_W_TX_PAYLOAD, data, NULL, len);
@@ -196,12 +222,12 @@ void nrf_write(uint8_t *data, int8_t len)
 
 uint8_t nrf_write(uint8_t *data, int8_t len)
 {
-	uint8_t fifo;
+	uint8_t irq;
 
-	fifo = nrf_rwcmd(NRF_C_R_REGISTER | NRF_R_FIFO_STATUS);
+	irq = nrf_cmd(NRF_C_NOP);
 
 	/* write new data if there's some space in the FIFOs */
-	if(!(fifo & NRF_R_FIFO_STATUS_TX_FULL)) {
+	if(!(irq & NRF_R_FIFO_STATUS_TX_FULL)) {
 #ifdef NRF_CFG_DYN_ACK
 		if(len > 0)
 			spi_rw(NRF_C_W_TX_PAYLOAD, data, NULL, len);
@@ -225,12 +251,12 @@ uint8_t nrf_read(uint8_t *data)
 {
 	uint8_t fifo, len = 0;
 
-	fifo = nrf_rwcmd(NRF_C_R_REGISTER | NRF_R_FIFO_STATUS);
+	fifo = nrf_rwcmd(NRF_C_R_REGISTER | NRF_R_FIFO_STATUS, 0);
 
 	/* if there's data in the fifos... */
 	if(!(fifo & NRF_R_FIFO_STATUS_RX_EMPTY)) {
 		/* get length of the top fifo element */
-		len = nrf_rwcmd(NRF_C_R_RX_PL_WID);
+		len = nrf_rwcmd(NRF_C_R_RX_PL_WID, 0);
 		
 		/* if len > 32 something odd happened */
 		if(len > 32) {
@@ -241,19 +267,6 @@ uint8_t nrf_read(uint8_t *data)
 	}
 
 	return len;
-}
-
-void nrf_power(uint8_t flag)
-{
-	uint8_t reg;
-
-	/* power down <-> standby I */
-	reg = nrf_rwcmd(NRF_C_R_REGISTER | NRF_R_CONFIG);
-	if(flag)
-		reg |= NRF_R_CONFIG_PWR_UP;
-	else
-		reg &= ~NRF_R_CONFIG_PWR_UP;
-	nrf_rwcmd(NRF_C_W_REGISTER | NRF_R_CONFIG, reg);
 }
 
 #ifdef NRF_CFG_ADDR_FAST
@@ -329,7 +342,7 @@ void nrf_init_pipe(uint8_t num)
 		nrf_pipe.maclen);
 	
 	/* enable/disable pipe */
-	reg = nrf_rwcmd(NRF_C_R_REGISTER | NRF_R_EN_RXADDR);
+	reg = nrf_rwcmd(NRF_C_R_REGISTER | NRF_R_EN_RXADDR, 0);
 	if(nrf_pipe.flags & NRF_PIPE_EN)
 		reg |= NRF_R_EN_RXADDR_ERX_P(num);
 	else
@@ -337,7 +350,7 @@ void nrf_init_pipe(uint8_t num)
 	nrf_rwcmd(NRF_C_W_REGISTER | NRF_R_EN_RXADDR, reg);
 	
 	/* enable/disable auto-ack */
-	reg = nrf_rwcmd(NRF_C_R_REGISTER | NRF_R_EN_AA);
+	reg = nrf_rwcmd(NRF_C_R_REGISTER | NRF_R_EN_AA, 0);
 	if(nrf_pipe.flags & NRF_PIPE_AA)
 		reg |= NRF_R_EN_AA_ENAA_P(num);
 	else
@@ -345,7 +358,7 @@ void nrf_init_pipe(uint8_t num)
 	nrf_rwcmd(NRF_C_W_REGISTER | NRF_R_EN_AA, reg);
 	
 	/* enable/disable dynamic packet lengths */
-	reg = nrf_rwcmd(NRF_C_R_REGISTER | NRF_R_DYNPD);
+	reg = nrf_rwcmd(NRF_C_R_REGISTER | NRF_R_DYNPD, 0);
 	if(nrf_pipe.flags & NRF_PIPE_DPL) {
 		reg |= NRF_R_DYNPD_DPL_P(num);
 	} else

@@ -46,11 +46,17 @@
 /* IRQ vector */
 #define NRF_CFG_INT_VEC PCINT_vect
 
-/* Power down after transmission or tx-error right in the ISR. */
+/* Power down after  tx-error right in nrf_int(). */
+#define NRF_CFG_IRQ_TE_PWR_DOWN 1
+
+/* Power down after transmission in nrf_int() */
 #define NRF_CFG_IRQ_TX_PWR_DOWN 1
 
 /* Power down right after packet received. */
 #define NRF_CFG_IRQ_RX_PWR_DOWN 1
+
+/* Flush buffers when MAX_RT occurs */
+// #define NRF_CFG_IRQ_TE_FLUSH 1
 #endif
 
 

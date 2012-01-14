@@ -111,4 +111,11 @@
 #define SPI_CE_HIGH()	SPI_PORT |= (1 << SPI_CE)
 #define SPI_CE_LOW()	SPI_PORT &= ~(1 << SPI_CE)
 
+
+uint8_t spi_rwb(uint8_t in);
+void spi_rw(uint8_t cmd, uint8_t *in, uint8_t *out, uint8_t len);
+
+uint8_t nrf_cmd(uint8_t cmd);
+uint8_t nrf_rwcmd(uint8_t cmd, uint8_t val);
+
 #endif
