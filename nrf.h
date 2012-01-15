@@ -24,6 +24,10 @@
  */
 
 /* features */
+#define NRF_DYN_ACK	1
+#define NRF_ACK_PAY	2
+#define NRF_DPL		4
+
 #define NRF_PIPE_EN	1
 #define NRF_PIPE_DPL	2
 #define NRF_PIPE_AA	4
@@ -51,6 +55,7 @@ struct nrf_context_s {
 	uint8_t ard;				/* auto retransmit delay */
 	uint8_t arc;				/* auto retransmit count */
 	uint8_t crc;				/* 0, 1 or 2 bytes crc */
+	uint8_t flags;
 };
 
 extern struct nrf_context_s nrf_dev;

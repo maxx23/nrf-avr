@@ -410,9 +410,10 @@ void nrf_init()
 	nrf_rwcmd(NRF_C_W_REGISTER | NRF_R_STATUS,
 		NRF_R_STATUS_MAX_RT);
 
-	/* also needs to be enabled in FEATURE register */
 	nrf_rwcmd(NRF_C_W_REGISTER | NRF_R_FEATURE,
-		NRF_R_FEATURE_EN_DPL | NRF_R_FEATURE_EN_DYN_ACK);
+		  ((nrf_dev.flags & NRF_DPL)?NRF_R_FEATURE_EN_DPL:0)
+		| ((nrf_dev.flags & NRF_DYN_ACK)?NRF_R_FEATURE_EN_DYN_ACK:0)
+		| ((nrf_dev.flags & NRF_ACK_PAY)?NRF_R_FEATURE_EN_ACK_PAY:0));
 
 	/* ...and flush the buffers */
 	nrf_cmd(NRF_C_FLUSH_TX);
