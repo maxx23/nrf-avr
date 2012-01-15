@@ -11,11 +11,24 @@ volatile uint8_t nrf_int_flag;
 #endif /* NRF_CFG_IRQ_MODE */
 
 #ifdef NRF_CFG_IRQ_MODE
+/*
+ * Interrupt service routine
+ *
+ * Sets nrf_int_flag only so nrf_int() can handle this later.
+ */
 ISR(NRF_CFG_INT_VEC)
 {
 	nrf_int_flag = 1;
 }
 
+/*
+ * Handle nRF interrupt
+ *
+ * Resets the nRF's status register and goes back to standby I
+ * and, depending on configuration, powers down.
+ * Check the returned status-byte if you need more control,
+ * this also contains the index of the rx-pipe.
+ */
 uint8_t nrf_int()
 {
 	uint8_t fifo, irq = 0;
@@ -61,6 +74,9 @@ uint8_t nrf_int()
 }
 #endif /* NRF_CFG_IRQ_MODE */
 
+/*
+ * Write + read one byte on SPI
+ */
 uint8_t spi_rwb(uint8_t in)
 {
 	USIDR = in;
@@ -71,6 +87,9 @@ uint8_t spi_rwb(uint8_t in)
 	return USIDR;
 }
 
+/*
+ * Write/read larger chuck of data on SPI
+ */
 void spi_rw(uint8_t cmd, uint8_t *in, uint8_t *out, uint8_t len)
 {
 	uint8_t wp = 0;
@@ -85,6 +104,9 @@ void spi_rw(uint8_t cmd, uint8_t *in, uint8_t *out, uint8_t len)
 	SPI_CS_HIGH();
 }
 
+/*
+ * Single-byte command for nRF (NOP, FLUSH_RX/TX)
+ */
 uint8_t nrf_cmd(uint8_t cmd)
 {
 	uint8_t reg;
@@ -96,6 +118,9 @@ uint8_t nrf_cmd(uint8_t cmd)
 	return reg;
 }
 
+/*
+ * Two-byte command (eg. set registers)
+ */
 uint8_t nrf_rwcmd(uint8_t cmd, uint8_t val)
 {
 	SPI_CS_LOW();
@@ -106,6 +131,9 @@ uint8_t nrf_rwcmd(uint8_t cmd, uint8_t val)
 	return val;
 }
 
+/*
+ * Power up/down chip
+ */
 void nrf_power(uint8_t flag)
 {
 	uint8_t reg;
@@ -119,7 +147,9 @@ void nrf_power(uint8_t flag)
 	nrf_rwcmd(NRF_C_W_REGISTER | NRF_R_CONFIG, reg);
 }
 
-
+/*
+ * Put nRF into PTX mode
+ */
 void nrf_send_start()
 {
 	uint8_t reg;
@@ -136,6 +166,10 @@ void nrf_send_start()
 }
 
 #ifndef NRF_CFG_IRQ_MODE
+/* 
+ * In non-IRQ-mode this is needed to make sure all data
+ * is sent before going back to standby I.
+ */
 void nrf_send_stop()
 {
 	uint8_t irq, fifo;
@@ -167,6 +201,11 @@ void nrf_send_stop()
 }
 #endif /* NRF_CFG_IRQ_MODE */
 
+/*
+ * Put nRF into active PRX mode.
+ *
+ * nrf_recv_stop() just goes back to standby I.
+ */
 void nrf_recv_start()
 {
 	uint8_t reg;
@@ -180,17 +219,25 @@ void nrf_recv_start()
 	SPI_CE_HIGH();
 }
 
-#ifndef NRF_CFG_IRQ_MODE
-
-void nrf_write(uint8_t *data, int8_t len)
+/*
+ * Send data to chip and start active PTX mode.
+ *
+ * If no buffer space is left returns 0, else 1.
+ *
+ * If NRF_CFG_DYN_ACK is set a negative length will modify
+ * this particular packet to not require an ACK even if
+ * Auto-ACK feature is configured.
+ */
+uint8_t nrf_write(uint8_t *data, int8_t len)
 {
 	uint8_t irq;
 
+	irq = nrf_cmd(NRF_C_NOP);
+
+#ifndef NRF_CFG_IRQ_MODE
 	/* standby II */
 	SPI_CE_HIGH();
 	
-	irq = nrf_cmd(NRF_C_NOP);
-
 	/* MAX_RT must be reset to enable further
 	 * communication in case of an error */
 	if(irq & NRF_R_STATUS_MAX_RT) {
@@ -199,6 +246,7 @@ void nrf_write(uint8_t *data, int8_t len)
 		
 		NRF_CFG_ERROR_IND();
 	}
+#endif
 
 	/* write new data if there's some space in the FIFOs */
 	if(!(irq & NRF_R_STATUS_TX_FULL)) {
@@ -210,41 +258,28 @@ void nrf_write(uint8_t *data, int8_t len)
 #else
 		spi_rw(NRF_C_W_TX_PAYLOAD, data, NULL, len);
 #endif /* NRF_CFG_DYN_ACK */
-	}
 
-	/* -> standby I */
-	SPI_CE_LOW();
-}
-
-#else /* NRF_CFG_IRQ_MODE */
-
-uint8_t nrf_write(uint8_t *data, int8_t len)
-{
-	uint8_t irq;
-
-	irq = nrf_cmd(NRF_C_NOP);
-
-	/* write new data if there's some space in the FIFOs */
-	if(!(irq & NRF_R_FIFO_STATUS_TX_FULL)) {
-#ifdef NRF_CFG_DYN_ACK
-		if(len > 0)
-			spi_rw(NRF_C_W_TX_PAYLOAD, data, NULL, len);
-		else
-			spi_rw(NRF_C_W_TX_PAYLOAD_NOACK, data, NULL, -len);
-#else
-		spi_rw(NRF_C_W_TX_PAYLOAD, data, NULL, len);
-#endif /* NRF_CFG_DYN_ACK */
-		
+#ifdef NRF_CFG_IRQ_MODE
 		/* standby II */
 		SPI_CE_HIGH();
-	
+#endif
+
 		return 1;
 	}
 
+#ifndef NRF_CFG_IRQ_MODE
+	/* -> standby I */
+	SPI_CE_LOW();
+#endif
+
 	return 0;
 }
-#endif /* NRF_CFG_IRQ_MODE */
 
+/*
+ * Read RX data from chip
+ *
+ * Returns length of data packet.
+ */
 uint8_t nrf_read(uint8_t *data)
 {
 	uint8_t fifo, len = 0;
