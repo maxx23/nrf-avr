@@ -57,9 +57,14 @@ extern struct nrf_context_s nrf_dev;
 extern struct nrf_pipe_s    nrf_pipe;
 #endif
 
-/* EEPROM configuration mode is unstructured ;) */
+/* EEPROM configuration is unstructured ;) */
+
 
 #ifdef NRF_CFG_IRQ_MODE
+#define NRF_INT_RX_P_NO(x)	(((x) >> 1) & 0x7)
+#define NRF_INT_RX_EMPTY(x)	(((x) & 0x0e) == 0x0e)
+#define NRF_INT_RX_NOT_USED(x)	(((x) & 0x0e) == 0x0c)
+
 extern volatile uint8_t nrf_int_flag;
 #endif /* NRF_IRQ_MODE */
 

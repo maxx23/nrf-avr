@@ -18,7 +18,7 @@ ISR(NRF_CFG_INT_VEC)
 
 uint8_t nrf_int()
 {
-	uint8_t fifo, irq;
+	uint8_t fifo, irq = 0;
 
 	if(nrf_int_flag) {
 		nrf_int_flag = 0;
@@ -55,11 +55,9 @@ uint8_t nrf_int()
 				irq & (NRF_R_STATUS_MAX_RT
 				| NRF_R_STATUS_TX_DS
 				| NRF_R_STATUS_RX_DR));
-
-		return irq;
 	}
 
-	return 0;
+	return irq;
 }
 #endif /* NRF_CFG_IRQ_MODE */
 
