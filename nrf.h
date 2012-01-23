@@ -74,16 +74,14 @@ extern volatile uint8_t nrf_int_flag;
 #endif /* NRF_IRQ_MODE */
 
 /* public exports */
-void nrf_send_start();
-
 #ifdef NRF_CFG_IRQ_MODE
 uint8_t nrf_int();
 #else
-void nrf_send_stop();
+void nrf_flush();
 #endif
 
 void nrf_recv_start();
-#define nrf_recv_stop()	SPI_CE_LOW();
+void nrf_recv_stop();
 
 uint8_t nrf_write(uint8_t *data, int8_t len);
 uint8_t nrf_read(uint8_t *data);
@@ -103,5 +101,4 @@ void nrf_rx_addr(uint8_t *mac, uint8_t len, uint8_t pipe)
 #endif
 
 void nrf_power(uint8_t flag);
-
 #endif

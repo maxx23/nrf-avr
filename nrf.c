@@ -31,10 +31,12 @@ ISR(NRF_CFG_INT_VEC)
  */
 uint8_t nrf_int()
 {
-	uint8_t fifo, irq = 0;
+	uint8_t irq = 0;
 
 	if(nrf_int_flag) {
 		nrf_int_flag = 0;
+	
+		uint8_t fifo;
 
 		SPI_CS_LOW();
 		irq = spi_rwb(NRF_C_R_REGISTER | NRF_R_FIFO_STATUS);
@@ -147,30 +149,12 @@ void nrf_power(uint8_t flag)
 	nrf_rwcmd(NRF_C_W_REGISTER | NRF_R_CONFIG, reg);
 }
 
-/*
- * Put nRF into PTX mode
- */
-void nrf_send_start()
-{
-	uint8_t reg;
-
-	/* configure nrf_device for tx mode */
-	reg = nrf_rwcmd(NRF_C_R_REGISTER | NRF_R_CONFIG, 0);
-	reg &= ~NRF_R_CONFIG_PRIM_RX;
-	nrf_rwcmd(NRF_C_W_REGISTER | NRF_R_CONFIG, reg);
-	
-	nrf_rwcmd(NRF_C_W_REGISTER | NRF_R_STATUS,
-		  NRF_R_STATUS_MAX_RT
-		| NRF_R_STATUS_TX_DS
-		| NRF_R_STATUS_RX_DR);
-}
-
 #ifndef NRF_CFG_IRQ_MODE
 /* 
  * In non-IRQ-mode this is needed to make sure all data
  * is sent before going back to standby I.
  */
-void nrf_send_stop()
+void nrf_flush()
 {
 	uint8_t irq, fifo;
 	
@@ -203,8 +187,6 @@ void nrf_send_stop()
 
 /*
  * Put nRF into active PRX mode.
- *
- * nrf_recv_stop() just goes back to standby I.
  */
 void nrf_recv_start()
 {
@@ -219,6 +201,16 @@ void nrf_recv_start()
 	SPI_CE_HIGH();
 }
 
+void nrf_recv_stop()
+{
+	uint8_t reg;
+
+	SPI_CE_LOW();
+	
+	reg = nrf_rwcmd(NRF_C_R_REGISTER | NRF_R_CONFIG, 0);
+	reg &= ~NRF_R_CONFIG_PRIM_RX;
+	nrf_rwcmd(NRF_C_W_REGISTER | NRF_R_CONFIG, reg);
+}
 /*
  * Send data to chip and start active PTX mode.
  *
