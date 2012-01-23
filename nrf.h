@@ -70,12 +70,12 @@ extern struct nrf_pipe_s    nrf_pipe;
 #define NRF_INT_RX_EMPTY(x)	(((x) & 0x0e) == 0x0e)
 #define NRF_INT_RX_NOT_USED(x)	(((x) & 0x0e) == 0x0c)
 
-extern volatile uint8_t nrf_int_flag;
+extern volatile uint8_t nrf_irq_flag;
 #endif /* NRF_IRQ_MODE */
 
 /* public exports */
 #ifdef NRF_CFG_IRQ_MODE
-uint8_t nrf_int();
+uint8_t nrf_irq();
 #else
 void nrf_flush();
 #endif

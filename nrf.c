@@ -7,18 +7,18 @@
 #include "nrf24l01.h"
 
 #ifdef NRF_CFG_IRQ_MODE
-volatile uint8_t nrf_int_flag;
+volatile uint8_t nrf_irq_flag;
 #endif /* NRF_CFG_IRQ_MODE */
 
 #ifdef NRF_CFG_IRQ_MODE
 /*
  * Interrupt service routine
  *
- * Sets nrf_int_flag only so nrf_int() can handle this later.
+ * Sets nrf_irq_flag only so nrf_irq() can handle this later.
  */
 ISR(NRF_CFG_INT_VEC)
 {
-	nrf_int_flag = 1;
+	nrf_irq_flag = 1;
 }
 
 /*
@@ -29,12 +29,12 @@ ISR(NRF_CFG_INT_VEC)
  * Check the returned status-byte if you need more control,
  * this also contains the index of the rx-pipe.
  */
-uint8_t nrf_int()
+uint8_t nrf_irq()
 {
 	uint8_t irq = 0;
 
-	if(nrf_int_flag) {
-		nrf_int_flag = 0;
+	if(nrf_irq_flag) {
+		nrf_irq_flag = 0;
 	
 		uint8_t fifo;
 

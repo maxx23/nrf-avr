@@ -1,10 +1,16 @@
+/*
+ * nRF24L01+ library configuration.
+ *
+ * Set compile time parameters.
+ */
+
 #ifndef __NRFCFG_H__
 #define __NRFCFG_H__
 
 /* Error indicator (LED, piezo, ...)
  */
-#define NRF_CFG_ERROR_IND()	\
-	PORTB |= (_BV(PB4))
+#define NRF_CFG_ERROR_IND() \
+		PORTB |= (_BV(PB4))
 
 /* Reads configuraion data from EEPROM
  *
@@ -31,7 +37,7 @@
 /* Enable dynamic no-acks
  *
  * Enables you to selectively use the auto-ack feature
- * by passing a negative length to nrf_write()
+ * by passing negated length to nrf_write()
  */
 #define NRF_CFG_DYN_ACK 1
 
@@ -46,16 +52,16 @@
 /* IRQ vector */
 #define NRF_CFG_INT_VEC PCINT_vect
 
-/* Power down after  tx-error right in nrf_int(). */
+/* Power down after tx-error right in nrf_irq(). */
 #define NRF_CFG_IRQ_TE_PWR_DOWN 1
 
-/* Power down after transmission in nrf_int() */
+/* Power down after transmission in nrf_irq() */
 #define NRF_CFG_IRQ_TX_PWR_DOWN 1
 
 /* Power down right after packet received. */
 #define NRF_CFG_IRQ_RX_PWR_DOWN 1
 
-/* Flush buffers when MAX_RT occurs */
+/* Flush buffers when tx-error occurs */
 // #define NRF_CFG_IRQ_TE_FLUSH 1
 #endif
 
