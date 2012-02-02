@@ -46,11 +46,15 @@
  * You can put the MCU to sleep while waiting for transmission
  * (rx/tx).
  */
-#define NRF_CFG_IRQ_MODE 1
+//#define NRF_CFG_IRQ_MODE 1
 
 #ifdef NRF_CFG_IRQ_MODE
 /* IRQ vector */
+#if defined(__AVR_ATtiny2313__)
 #define NRF_CFG_INT_VEC PCINT_vect
+#elif defined(__AVR_ATmega8__)
+#define NRF_CFG_INT_VEC INT0_vect
+#endif
 
 /* Power down after tx-error right in nrf_irq(). */
 #define NRF_CFG_IRQ_TE_PWR_DOWN 1
@@ -67,6 +71,8 @@
 
 
 /* SPI stuff */
+#if defined(__AVR_ATtiny2313__)
+
 #define SPI_PORT	PORTB
 #define SPI_DDR		DDRB
 #define SPI_PIN		PINB
@@ -77,5 +83,24 @@
 #define SPI_DI		6
 #define SPI_SCK		7
 #define SPI_SPEED	1
+
+#elif defined(__AVR_ATmega8__)
+
+#define SPI_PORT	PORTB
+#define SPI_DDR		DDRB
+#define SPI_PIN		PINB
+#define SPI_CS		2
+#define SPI_DO		3
+#define SPI_DI		4
+#define SPI_SCK		5
+
+#define SPI_AUX_DDR		DDRD
+#define SPI_AUX_PORT	PORTD
+#define SPI_AUX_PIN		PIND
+#define SPI_AUX_CE		5
+#define SPI_AUX_IRQ		6
+
+#endif
+
 
 #endif

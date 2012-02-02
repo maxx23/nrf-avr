@@ -100,6 +100,9 @@
 #define NRF_R_FIFO_STATUS_TX_FULL	0x20
 #define NRF_R_FIFO_STATUS_TX_REUSE	0x40
 
+/* NRF_R_RF_CH */
+#define NRF_R_RF_CH_RF_CH(v)		((v) & 0x7f)
+
 /* delays */
 #define NRF_T_SND_DELAY			10		
 #define NRF_T_PWR_UP			150		/* External Clock */
@@ -108,9 +111,17 @@
 #define SPI_CS_HIGH()	SPI_PORT |= (1 << SPI_CS)
 #define SPI_CS_LOW()	SPI_PORT &= ~(1 << SPI_CS)
 
+#if defined(__AVR_ATtiny2313__)
+
 #define SPI_CE_HIGH()	SPI_PORT |= (1 << SPI_CE)
 #define SPI_CE_LOW()	SPI_PORT &= ~(1 << SPI_CE)
 
+#elif defined(__AVR_ATmega8__)
+
+#define SPI_CE_HIGH()	SPI_AUX_PORT |= (1 << SPI_AUX_CE)
+#define SPI_CE_LOW()	SPI_AUX_PORT &= ~(1 << SPI_AUX_CE)
+
+#endif
 
 uint8_t spi_rwb(uint8_t in);
 void spi_rw(uint8_t cmd, uint8_t *in, uint8_t *out, uint8_t len);

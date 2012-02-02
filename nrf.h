@@ -3,10 +3,10 @@
 #include <avr/io.h>
 
 #include "nrfcfg.h"
+#include "nrf24l01.h"
 
 #ifdef NRF_CFG_EEPROM_INIT
 #include <avr/eeprom.h>
-#include "nrf24l01.h"
 #endif
 
 #ifndef __NRF_H__
@@ -101,4 +101,11 @@ void nrf_rx_addr(uint8_t *mac, uint8_t len, uint8_t pipe)
 #endif
 
 void nrf_power(uint8_t flag);
+
+#define nrf_set_txpwr(val) \
+	nrf_rwcmd(NRF_C_W_REGISTER | NRF_R_RF_SETUP, NRF_R_RF_SETUP_RF_PWR(val))
+
+#define nrf_set_channel(val) \
+	nrf_rwcmd(NRF_C_W_REGISTER | NRF_R_RF_CH, NRF_R_RF_CH_RF_CH(val))
+
 #endif
