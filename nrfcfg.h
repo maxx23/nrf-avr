@@ -46,7 +46,7 @@
  * You can put the MCU to sleep while waiting for transmission
  * (rx/tx).
  */
-//#define NRF_CFG_IRQ_MODE 1
+#define NRF_CFG_IRQ_MODE 1
 
 #ifdef NRF_CFG_IRQ_MODE
 /* IRQ vector */
@@ -66,7 +66,7 @@
 #define NRF_CFG_IRQ_RX_PWR_DOWN 1
 
 /* Flush buffers when tx-error occurs */
-// #define NRF_CFG_IRQ_TE_FLUSH 1
+#define NRF_CFG_IRQ_TE_FLUSH 1
 #endif
 
 

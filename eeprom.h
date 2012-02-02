@@ -15,7 +15,7 @@
  *
  * 0-126
  */
-#define NRF_CHANNEL	5
+#define NRF_CHANNEL	120
 
 /* 
  * Data rate
@@ -24,7 +24,7 @@
  * NRF_R_RF_SETUP_DR_1M
  * NRF_R_RF_SETUP_DR_2M
  */
-#define NRF_RATE	(NRF_R_RF_SETUP_DR_2M)
+#define NRF_RATE	(NRF_R_RF_SETUP_DR_250K)
 
 /* 
  * TX power
@@ -43,7 +43,7 @@
  * ...
  * 0xf - 4ms
  */
-#define NRF_ARD		0x0
+#define NRF_ARD		0x3
 
 /*
  * Maximum number of retransmits if no ACK received
@@ -66,7 +66,7 @@
  * dynamic payload length: NRF_R_FEATURE_EN_DPL
  * dynamic auto ack: NRF_R_FEATURE_EN_DYN_ACK
  */
-#define NRF_FEATURES	(NRF_R_FEATURE_EN_DPL)
+#define NRF_FEATURES	(NRF_R_FEATURE_EN_DPL | NRF_R_FEATURE_EN_DYN_ACK)
 
 /* One address in EEPROM (used for rx and tx)
  *
