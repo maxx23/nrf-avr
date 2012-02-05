@@ -232,6 +232,9 @@ void nrf_recv_stop()
 uint8_t nrf_write(uint8_t *data, int8_t len)
 {
 	uint8_t irq;
+	
+	/* standby II */
+	SPI_CE_HIGH();	
 
 	irq = nrf_cmd(NRF_C_NOP);
 
@@ -246,9 +249,6 @@ uint8_t nrf_write(uint8_t *data, int8_t len)
 		spi_rw(NRF_C_W_TX_PAYLOAD, data, NULL, len);
 #endif /* NRF_CFG_DYN_ACK */
 
-		/* standby II */
-		SPI_CE_HIGH();
-		
 		return 1;
 	}
 

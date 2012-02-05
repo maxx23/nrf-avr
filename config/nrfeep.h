@@ -5,7 +5,7 @@
  */
 
 #include <avr/eeprom.h>
-#include "nrf.h"
+#include <nrf/nrf.h>
 
 #ifndef __EEPROM_H__
 #define __EEPROM_H__

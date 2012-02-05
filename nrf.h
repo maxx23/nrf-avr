@@ -2,7 +2,7 @@
 #include <stdint.h>
 #include <avr/io.h>
 
-#include "nrfcfg.h"
+#include <nrfcfg.h>
 #include "nrf24l01.h"
 
 #ifdef NRF_CFG_EEPROM_INIT
