@@ -178,19 +178,24 @@ void nrf_flush()
 
 	while(!(fifo & NRF_R_FIFO_STATUS_TX_EMPTY)) {
 		if(irq & NRF_R_STATUS_MAX_RT) {
-			nrf_rwcmd(NRF_C_W_REGISTER | NRF_R_STATUS,
-				  NRF_R_STATUS_MAX_RT);
-			
 			nrf_cmd(NRF_C_FLUSH_TX);
+			return;
 		}
+		
+		SPI_CE_HIGH();
+		_delay_us(NRF_T_SND_DELAY);
+		SPI_CE_LOW();
+
+		nrf_rwcmd(NRF_C_W_REGISTER | NRF_R_STATUS,
+				irq & (NRF_R_STATUS_MAX_RT
+				| NRF_R_STATUS_TX_DS
+				| NRF_R_STATUS_RX_DR));
 		
 		SPI_CS_LOW();
 		irq = spi_rwb(NRF_C_R_REGISTER | NRF_R_FIFO_STATUS);
 		fifo = spi_rwb(0);
 		SPI_CS_HIGH();
 	}
-	
-	SPI_CE_LOW();
 }
 #endif /* NRF_CFG_IRQ_MODE */
 
@@ -233,9 +238,6 @@ uint8_t nrf_write(uint8_t *data, int8_t len)
 {
 	uint8_t irq;
 	
-	/* standby II */
-	SPI_CE_HIGH();	
-
 	irq = nrf_cmd(NRF_C_NOP);
 
 	/* write new data if there's some space in the FIFOs */
@@ -248,6 +250,15 @@ uint8_t nrf_write(uint8_t *data, int8_t len)
 #else
 		spi_rw(NRF_C_W_TX_PAYLOAD, data, NULL, len);
 #endif /* NRF_CFG_DYN_ACK */
+
+#ifdef NRF_CFG_IRQ_MODE
+		/* standby II */
+		SPI_CE_HIGH();	
+#else
+		SPI_CE_HIGH();
+		_delay_us(NRF_T_SND_DELAY);
+		SPI_CE_LOW();
+#endif
 
 		return 1;
 	}
