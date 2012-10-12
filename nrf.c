@@ -179,6 +179,11 @@ void nrf_flush()
 	while(!(fifo & NRF_R_FIFO_STATUS_TX_EMPTY)) {
 		if(irq & NRF_R_STATUS_MAX_RT) {
 			nrf_cmd(NRF_C_FLUSH_TX);
+			nrf_rwcmd(NRF_C_W_REGISTER | NRF_R_STATUS,
+				irq & (NRF_R_STATUS_MAX_RT
+				| NRF_R_STATUS_TX_DS
+				| NRF_R_STATUS_RX_DR));
+		
 			return;
 		}
 		
@@ -186,11 +191,6 @@ void nrf_flush()
 		_delay_us(NRF_T_SND_DELAY);
 		SPI_CE_LOW();
 
-		nrf_rwcmd(NRF_C_W_REGISTER | NRF_R_STATUS,
-				irq & (NRF_R_STATUS_MAX_RT
-				| NRF_R_STATUS_TX_DS
-				| NRF_R_STATUS_RX_DR));
-		
 		SPI_CS_LOW();
 		irq = spi_rwb(NRF_C_R_REGISTER | NRF_R_FIFO_STATUS);
 		fifo = spi_rwb(0);
